@@ -41,6 +41,9 @@ public class RNMergeImagesModule extends ReactContextBaseJavaModule {
 
   public static final int DEFAULT_JPEG_QUALITY = 80;
 
+  public static final int RN_MERGE_TYPE_MERGE = 1;
+  public static final int RN_MERGE_TYPE_COLLAGE = 2;
+
   private final ReactApplicationContext reactContext;
 
   public RNMergeImagesModule(ReactApplicationContext reactContext) {
@@ -60,13 +63,14 @@ public class RNMergeImagesModule extends ReactContextBaseJavaModule {
       {
         put("Size", getSizeConstants());
         put("Target", getTargetConstants());
+        put("MergeType", getMergeTypeConstants());
       }
 
       private Map<String, Object> getSizeConstants() {
         return Collections.unmodifiableMap(new HashMap<String, Object>() {
           {
-            put("smallest", RN_MERGE_SIZE_SMALLEST);
-            put("largest", RN_MERGE_SIZE_LARGEST);
+            put("SMALLEST", RN_MERGE_SIZE_SMALLEST);
+            put("LARGEST", RN_MERGE_SIZE_LARGEST);
           }
         });
       }
@@ -74,8 +78,17 @@ public class RNMergeImagesModule extends ReactContextBaseJavaModule {
       private Map<String, Object> getTargetConstants() {
         return Collections.unmodifiableMap(new HashMap<String, Object>() {
           {
-            put("temp", RN_MERGE_TARGET_TEMP);
-            put("disk", RN_MERGE_TARGET_DISK);
+            put("TEMP", RN_MERGE_TARGET_TEMP);
+            put("DISK", RN_MERGE_TARGET_DISK);
+          }
+        });
+      }
+
+      private Map<String, Object> getMergeTypeConstants() {
+        return Collections.unmodifiableMap(new HashMap<String, Object>() {
+          {
+            put("MERGE", RN_MERGE_TYPE_MERGE);
+            put("COLLAGE", RN_MERGE_TYPE_COLLAGE);
           }
         });
       }
@@ -103,7 +116,27 @@ public class RNMergeImagesModule extends ReactContextBaseJavaModule {
       final int size = options.hasKey("size") ? options.getInt("size") : RN_MERGE_SIZE_SMALLEST;
       final int target = options.hasKey("target") ? options.getInt("target") : RN_MERGE_TARGET_TEMP;
       final int jpegQuality = options.hasKey("jpegQuality") ? options.getInt("jpegQuality") : DEFAULT_JPEG_QUALITY;
+      final int mergeType = options.hasKey("mergeType") ? options.getInt("mergeType") : RN_MERGE_TYPE_MERGE;
 
+      Bitmap resultBitmap = null;
+      switch(mergeType) {
+        case RN_MERGE_TYPE_MERGE: {
+          resultBitmap = merge(size);
+          break;
+        }
+        case RN_MERGE_TYPE_COLLAGE: {
+          resultBitmap = collage(size);
+          break;
+        }
+        default:
+          resultBitmap = merge(size);
+      }
+
+      saveBitmap(resultBitmap, target, jpegQuality, promise);
+      return null;
+    }
+
+    private Bitmap merge(final int size) {
       final ArrayList<BitmapMetadata> bitmaps = new ArrayList<>(images.size());
       int targetWidth, targetHeight;
 
@@ -144,10 +177,57 @@ public class RNMergeImagesModule extends ReactContextBaseJavaModule {
         }
         bitmap.recycle();
       }
+      return mergedBitmap;
+    }
 
-      saveBitmap(mergedBitmap, target, jpegQuality, promise);
+    private Bitmap collage(final int size) {
+      // final ArrayList<BitmapMetadata> bitmaps = new ArrayList<>(images.size());
+      // int targetWidth, targetHeight;
+
+      // switch (size) {
+      //   case RN_MERGE_SIZE_SMALLEST:
+      //     targetWidth = Integer.MAX_VALUE;
+      //     targetHeight = Integer.MAX_VALUE;
+      //     break;
+      //   default:
+      //     targetWidth = 0;
+      //     targetHeight = 0;
+      // }
+
+      // // Calculate collage dimensions TODO: WRITE LOGIC
+      // for (int i = 0, n = images.size(); i < n; i++) {
+      //   BitmapMetadata bitmapMetadata = BitmapMetadata.load(getFilePath(images.getString(i)));
+      //   if (bitmapMetadata != null) {
+      //     bitmaps.add(bitmapMetadata);
+      //     if (size == RN_MERGE_SIZE_LARGEST && (bitmapMetadata.width > targetWidth || bitmapMetadata.height > targetHeight)) {
+      //       targetWidth = bitmapMetadata.width;
+      //       targetHeight = bitmapMetadata.height;
+      //     } else if (size == RN_MERGE_SIZE_SMALLEST && (bitmapMetadata.width < targetWidth || bitmapMetadata.height < targetHeight)) {
+      //       targetWidth = bitmapMetadata.width;
+      //       targetHeight = bitmapMetadata.height;
+      //     }
+      //   }
+      // }
+
+      // // Create bitmap with collage dimensions
+      // final Bitmap mergedBitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888);
+      // final Canvas canvas = new Canvas(mergedBitmap);
+
+      // // Merge images TODO: WRITE LOGIC
+      // for (BitmapMetadata bitmapMetadata: bitmaps) {
+      //   Bitmap bitmap = BitmapFactory.decodeFile(bitmapMetadata.fileName);
+      //   Matrix matrix = bitmapMetadata.getMatrix(targetWidth, targetHeight);
+      //   if (matrix == null) {
+      //     canvas.drawBitmap(bitmap, null, new RectF(0, 0, targetWidth, targetHeight), null);
+      //   } else {
+      //     canvas.drawBitmap(bitmap, matrix, null);
+      //   }
+      //   bitmap.recycle();
+      // }
+      // return mergedBitmap;
       return null;
     }
+
   }
 
   private static String getFilePath(String file) {
