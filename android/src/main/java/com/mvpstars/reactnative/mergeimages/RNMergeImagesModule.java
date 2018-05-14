@@ -4,9 +4,11 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Matrix;
+import android.graphics.Paint;
 import android.graphics.RectF;
 import android.net.Uri;
 import android.os.AsyncTask;
+import android.util.Log;
 
 import com.facebook.react.bridge.Promise;
 import com.facebook.react.bridge.ReactApplicationContext;
@@ -61,9 +63,9 @@ public class RNMergeImagesModule extends ReactContextBaseJavaModule {
   public Map<String, Object> getConstants() {
     return Collections.unmodifiableMap(new HashMap<String, Object>() {
       {
-        put("Size", getSizeConstants());
-        put("Target", getTargetConstants());
-        put("MergeType", getMergeTypeConstants());
+        put("size", getSizeConstants());
+        put("target", getTargetConstants());
+        put("mergeType", getMergeTypeConstants());
       }
 
       private Map<String, Object> getSizeConstants() {
@@ -119,13 +121,14 @@ public class RNMergeImagesModule extends ReactContextBaseJavaModule {
       final int mergeType = options.hasKey("mergeType") ? options.getInt("mergeType") : RN_MERGE_TYPE_MERGE;
 
       Bitmap resultBitmap = null;
-      switch(mergeType) {
+
+      switch (mergeType) {
         case RN_MERGE_TYPE_MERGE: {
           resultBitmap = merge(size);
           break;
         }
         case RN_MERGE_TYPE_COLLAGE: {
-          resultBitmap = collage(size);
+          resultBitmap = collage();
           break;
         }
         default:
@@ -180,54 +183,88 @@ public class RNMergeImagesModule extends ReactContextBaseJavaModule {
       return mergedBitmap;
     }
 
-    private Bitmap collage(final int size) {
-      // final ArrayList<BitmapMetadata> bitmaps = new ArrayList<>(images.size());
-      // int targetWidth, targetHeight;
+    // Create collage from images
+    private Bitmap collage () {
+      try {
+        final ArrayList<BitmapMetadata> bitmapsMetadata = new ArrayList<>();
+        final ArrayList<Integer> maxRowHeights = new ArrayList<>();
+        int maxRowWidth = 0, rowHeightSum = 0, tempRowWidth = 0, tempMaxRowHeight = 0;
 
-      // switch (size) {
-      //   case RN_MERGE_SIZE_SMALLEST:
-      //     targetWidth = Integer.MAX_VALUE;
-      //     targetHeight = Integer.MAX_VALUE;
-      //     break;
-      //   default:
-      //     targetWidth = 0;
-      //     targetHeight = 0;
-      // }
+        // Get image metaData, ignore images without metadata
+        for (int i = 0, n = images.size(); i < n; i++) {
+          BitmapMetadata bitmapMetadata = BitmapMetadata.load(getFilePath(images.getString(i)));
+          if (bitmapMetadata != null) {
+            bitmapsMetadata.add(bitmapMetadata);
+          }
+        }
 
-      // // Calculate collage dimensions TODO: WRITE LOGIC
-      // for (int i = 0, n = images.size(); i < n; i++) {
-      //   BitmapMetadata bitmapMetadata = BitmapMetadata.load(getFilePath(images.getString(i)));
-      //   if (bitmapMetadata != null) {
-      //     bitmaps.add(bitmapMetadata);
-      //     if (size == RN_MERGE_SIZE_LARGEST && (bitmapMetadata.width > targetWidth || bitmapMetadata.height > targetHeight)) {
-      //       targetWidth = bitmapMetadata.width;
-      //       targetHeight = bitmapMetadata.height;
-      //     } else if (size == RN_MERGE_SIZE_SMALLEST && (bitmapMetadata.width < targetWidth || bitmapMetadata.height < targetHeight)) {
-      //       targetWidth = bitmapMetadata.width;
-      //       targetHeight = bitmapMetadata.height;
-      //     }
-      //   }
-      // }
+        // Calc grid dimensions
+        int columns = 2;
+        int rows = (int) Math.ceil((float) bitmapsMetadata.size() / columns);
+        Log.i("TEST123", "ROWS x COLUMNS: " + rows + " x " + columns);
 
-      // // Create bitmap with collage dimensions
-      // final Bitmap mergedBitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888);
-      // final Canvas canvas = new Canvas(mergedBitmap);
+        // Calculate canvas dimensions
+        for (int i = 0, n = bitmapsMetadata.size(); i < n; i++) {
+          BitmapMetadata metaData = bitmapsMetadata.get(i);
+          Log.i("TEST123", i + " WIDTH: " + metaData.width + " HEIGHT: " + metaData.height);
+          tempRowWidth += metaData.width;
+          if (tempMaxRowHeight < metaData.height) {
+            tempMaxRowHeight = metaData.height;
+          }
+          if (columns > 1 && ((i + 1) % columns == 0 || i + 1 == bitmapsMetadata.size())) {
+            // Height
+            rowHeightSum += tempMaxRowHeight;
+            maxRowHeights.add(tempMaxRowHeight);
+            tempMaxRowHeight = 0;
+            // Width
+            if (maxRowWidth < tempRowWidth) {
+              maxRowWidth = tempRowWidth;
+            }
+            tempRowWidth = 0;
+          }
+        }
 
-      // // Merge images TODO: WRITE LOGIC
-      // for (BitmapMetadata bitmapMetadata: bitmaps) {
-      //   Bitmap bitmap = BitmapFactory.decodeFile(bitmapMetadata.fileName);
-      //   Matrix matrix = bitmapMetadata.getMatrix(targetWidth, targetHeight);
-      //   if (matrix == null) {
-      //     canvas.drawBitmap(bitmap, null, new RectF(0, 0, targetWidth, targetHeight), null);
-      //   } else {
-      //     canvas.drawBitmap(bitmap, matrix, null);
-      //   }
-      //   bitmap.recycle();
-      // }
-      // return mergedBitmap;
+        // Only 1 column set rowHeightSum
+        if (rowHeightSum == 0) {
+          rowHeightSum = tempMaxRowHeight;
+        }
+        // last row not filled
+        if (maxRowWidth == 0) {
+          maxRowWidth = tempRowWidth;
+        }
+
+        // Create bitmap with collage dimensions
+        Log.i("TEST123", "maxWidth - maxHeight: " + maxRowWidth + " - " + rowHeightSum);
+        final Bitmap mergedBitmap = Bitmap.createBitmap(maxRowWidth, rowHeightSum, Bitmap.Config.ARGB_8888);
+        final Canvas canvas = new Canvas(mergedBitmap);
+
+        // Merge images
+        int left = 0, top = 0;
+        for (int i = 0, n = bitmapsMetadata.size(); i < n; i++) {
+          BitmapMetadata metaData = bitmapsMetadata.get(i);
+          Bitmap bitmap = BitmapFactory.decodeFile(metaData.fileName);
+
+          // position correctly
+          if (i > 0 && columns > 0 && i % columns == 0) {
+            left = 0;
+            top += maxRowHeights.get(i / columns);
+          }
+          // TODO: center image if dimensions differ (if image is smaller than allocated space) => rowMaxHeights.get(i / columns) - metaData.height) / 2
+          // TODO: add padding around images
+          // TODO: dynamic columns?
+          Log.i("TEST123", "ROW: " + i / columns + " - ROW_HEIGHT: " + maxRowHeights.get(i / columns));
+          canvas.drawBitmap(bitmap, null, new RectF(left, top, left + metaData.width, top + metaData.height), null);
+
+          left += metaData.width;
+          bitmap.recycle();
+        }
+
+        return mergedBitmap;
+      } catch (Exception e) {
+        Log.i("TEST123", "EXCEPTION: " + e.getClass().getName() + " " + e.getStackTrace().toString());
+      }
       return null;
     }
-
   }
 
   private static String getFilePath(String file) {
