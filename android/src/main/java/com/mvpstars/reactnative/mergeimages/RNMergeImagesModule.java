@@ -200,7 +200,8 @@ public class RNMergeImagesModule extends ReactContextBaseJavaModule {
         }
 
         // Calc grid dimensions
-        int columns = 2; // TODO: Works with all kinds of columns, could be added as feature to set column parameter
+        int staticColumns = 2; // TODO: Works with all kinds of columns, could be added as feature to set column parameter
+        int columns = bitmapsMetadata.size() >= staticColumns ? staticColumns : bitmapsMetadata.size();
 
         int rows = (int) Math.ceil((float) bitmapsMetadata.size() / columns);
 
