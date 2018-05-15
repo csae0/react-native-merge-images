@@ -160,6 +160,9 @@ RCT_EXPORT_METHOD(merge:(NSArray *)imagePaths
         CGFloat height = rowHeightSum + ((rows + 1) * spacing);
         CGSize contextSize = CGSizeMake(width, height);
         UIGraphicsBeginImageContext(contextSize);
+        // Set background color
+        [[UIColor blackColor] set];
+        UIRectFill(CGRectMake(0.0, 0.0, width, height));
         
         // Merge images
         NSInteger left = spacing, top = spacing, centerPaddingXSum = 0;
