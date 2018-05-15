@@ -102,11 +102,6 @@ RCT_EXPORT_METHOD(merge:(NSArray *)imagePaths
     return mergedImage;
 }
 
-
-
-
-
-
 // Create collage from images (Setting: mergeType.COLLAGE)
 - (UIImage *)collage:(NSArray *)imagePaths {
     @try {
@@ -179,13 +174,13 @@ RCT_EXPORT_METHOD(merge:(NSArray *)imagePaths
             }
             
             NSInteger centerPaddingX = ([[maxColumnWidths objectAtIndex:(i % columns)] integerValue] - imageData.size.width) / 2;
-            NSInteger centerPaddingY = ([[maxColumnWidths objectAtIndex:(i / columns)] integerValue] - imageData.size.height) / 2;
+            NSInteger centerPaddingY = ([[maxRowHeights objectAtIndex:(i / columns)] integerValue] - imageData.size.height) / 2;
             NSInteger canvasLeft = left + centerPaddingXSum + centerPaddingX;
             NSInteger canvasTop = top + centerPaddingY;
-            NSInteger canvasRight = left + centerPaddingXSum + centerPaddingX + imageData.size.width;
-            NSInteger canvasBottom = top + centerPaddingY + imageData.size.height;
+            NSInteger canvasWidth =  imageData.size.width;
+            NSInteger canvasHeight = imageData.size.height;
 
-            [imageData drawInRect:CGRectMake(canvasLeft, canvasTop, canvasRight, canvasBottom)];
+            [imageData drawInRect:CGRectMake(canvasLeft, canvasTop, canvasWidth, canvasHeight)];
             centerPaddingXSum += 2 * centerPaddingX;
             left += spacing + imageData.size.width;
         }
