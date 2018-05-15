@@ -232,7 +232,8 @@ public class RNMergeImagesModule extends ReactContextBaseJavaModule {
         // Create bitmap with collage dimensions
         int spacing = 20;
         final Bitmap mergedBitmap = Bitmap.createBitmap(columnWitdhSum + ((columns + 1) * spacing), rowHeightSum + ((rows + 1) * spacing), Bitmap.Config.ARGB_8888);
-        // mergedBitmap.eraseColor(Color.GREEN);
+        // set background color
+        mergedBitmap.eraseColor(Color.WHITE);
         final Canvas canvas = new Canvas(mergedBitmap);
         // Merge images
         int left = spacing, top = spacing, centerPaddingXSum = 0;
