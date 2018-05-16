@@ -123,7 +123,7 @@ public class RNMergeImagesModule extends ReactContextBaseJavaModule {
       final int target = options.hasKey("target") ? options.getInt("target") : RN_MERGE_TARGET_TEMP;
       final int jpegQuality = options.hasKey("jpegQuality") ? options.getInt("jpegQuality") : DEFAULT_JPEG_QUALITY;
       final int mergeType = options.hasKey("mergeType") ? options.getInt("mergeType") : RN_MERGE_TYPE_MERGE;
-      final String filename = options.hasKey("filename") ? options.getString("filename") : "";
+      final String filenamePrefix = options.hasKey("filenamePrefix") ? options.getString("filenamePrefix") : "";
       final int maxColumns = options.hasKey("maxColumns") ? options.getInt("maxColumns") : DEFAULT_MAX_COLUMNS;
       final String backgroundColor = options.hasKey("backgroundColorHex") ? options.getString("backgroundColorHex") : DEFAULT_BACKGROUND_COLOR;
       final int imageSpacing = options.hasKey("imageSpacing") ? options.getInt("imageSpacing") : DEFAULT_IMAGE_SPACING;
@@ -144,7 +144,7 @@ public class RNMergeImagesModule extends ReactContextBaseJavaModule {
           resultBitmap = merge(size);
       }
 
-      saveBitmap(resultBitmap, target, jpegQuality, filename, promise);
+      saveBitmap(resultBitmap, target, jpegQuality, filenamePrefix, promise);
       return null;
     }
 
@@ -291,7 +291,7 @@ public class RNMergeImagesModule extends ReactContextBaseJavaModule {
           file = getDiskFile(filename);
           break;
         default:
-          file = getTempFile(filename);
+          file = getTempFile(filename, false);
       }
       final FileOutputStream out = new FileOutputStream(file);
       bitmap.compress(Bitmap.CompressFormat.JPEG, jpegQuality, out);
@@ -315,11 +315,14 @@ public class RNMergeImagesModule extends ReactContextBaseJavaModule {
     return new File(outputDir, filenamePrefix + ".jpg");
   }
 
-  private File getTempFile(String filename) throws IOException {
+  private File getTempFile(String filename, boolean createTempFile) throws IOException {
     String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
     File outputDir = reactContext.getCacheDir();
     String filenamePrefix = filename.length() > 0 ? filename : ("IMG_" + timeStamp);
-    File outputFile = File.createTempFile(filenamePrefix, ".jpg", outputDir);
-    return outputFile;
+    if (createTempFile) {
+      return File.createTempFile(filenamePrefix, ".jpg", outputDir);
+    } else {
+      return new File(outputDir, filenamePrefix + ".jpg");
+    }
   }
 }
