@@ -41,10 +41,14 @@ public class RNMergeImagesModule extends ReactContextBaseJavaModule {
   public static final int RN_MERGE_TARGET_TEMP = 1;
   public static final int RN_MERGE_TARGET_DISK = 2;
 
-  public static final int DEFAULT_JPEG_QUALITY = 80;
-
   public static final int RN_MERGE_TYPE_MERGE = 1;
   public static final int RN_MERGE_TYPE_COLLAGE = 2;
+
+  public static final int DEFAULT_JPEG_QUALITY = 80;
+  public static final int DEFAULT_MAX_COLUMNS = 2;
+  public static final int DEFAULT_IMAGE_SPACING = 20;
+  public static final int DEFAULT_MAX_SIZE_IN_MB = 10;
+  public static final String DEFAULT_BACKGROUND_COLOR = "white";
 
   private final ReactApplicationContext reactContext;
 
@@ -115,10 +119,15 @@ public class RNMergeImagesModule extends ReactContextBaseJavaModule {
 
     @Override
     protected Void doInBackground(Void... voids) {
-      final int size = options.hasKey("size") ? options.getInt("size") : RN_MERGE_SIZE_SMALLEST;
+      final int size = options.hasKey("size") ? options.getInt("size") : RN_MERGE_SIZE_SMALLEST; // Merge setting only
       final int target = options.hasKey("target") ? options.getInt("target") : RN_MERGE_TARGET_TEMP;
       final int jpegQuality = options.hasKey("jpegQuality") ? options.getInt("jpegQuality") : DEFAULT_JPEG_QUALITY;
       final int mergeType = options.hasKey("mergeType") ? options.getInt("mergeType") : RN_MERGE_TYPE_MERGE;
+      final String filename = options.hasKey("filename") ? options.getString("filename") : "";
+      final int maxColumns = options.hasKey("maxColumns") ? options.getInt("maxColumns") : DEFAULT_MAX_COLUMNS;
+      final String backgroundColor = options.hasKey("backgroundColorHex") ? options.getString("backgroundColorHex") : DEFAULT_BACKGROUND_COLOR;
+      final int imageSpacing = options.hasKey("imageSpacing") ? options.getInt("imageSpacing") : DEFAULT_IMAGE_SPACING;
+      // final int maxSizeInMB = options.hasKey("maxSizeInMB") ? options.getInt("maxSizeInMB") : DEFAULT_MAX_COLLAGE_SIZE_IN_MB; // Not needed for now because of small file size (IOS NEEDS IT)
 
       Bitmap resultBitmap = null;
 
@@ -128,14 +137,14 @@ public class RNMergeImagesModule extends ReactContextBaseJavaModule {
           break;
         }
         case RN_MERGE_TYPE_COLLAGE: {
-          resultBitmap = collage();
+          resultBitmap = collage(maxColumns, backgroundColor, imageSpacing);
           break;
         }
         default:
           resultBitmap = merge(size);
       }
 
-      saveBitmap(resultBitmap, target, jpegQuality, promise);
+      saveBitmap(resultBitmap, target, jpegQuality, filename, promise);
       return null;
     }
 
@@ -184,7 +193,7 @@ public class RNMergeImagesModule extends ReactContextBaseJavaModule {
     }
 
     // Create collage from images
-    private Bitmap collage () {
+    private Bitmap collage (int maxColumns, String backgroundColor, int imageSpacing) {
       try {
         final ArrayList<BitmapMetadata> bitmapsMetadata = new ArrayList<>();
         final ArrayList<Integer> maxRowHeights = new ArrayList<>();
@@ -200,8 +209,7 @@ public class RNMergeImagesModule extends ReactContextBaseJavaModule {
         }
 
         // Calc grid dimensions
-        int staticColumns = 2; // TODO: Works with all kinds of columns, could be added as feature to set column parameter
-        int columns = bitmapsMetadata.size() >= staticColumns ? staticColumns : bitmapsMetadata.size();
+        int columns = bitmapsMetadata.size() >= maxColumns ? maxColumns : bitmapsMetadata.size();
 
         int rows = (int) Math.ceil((float) bitmapsMetadata.size() / columns);
 
@@ -230,21 +238,20 @@ public class RNMergeImagesModule extends ReactContextBaseJavaModule {
           columnWitdhSum += maxColumnWidth;
         }
         // Create bitmap with collage dimensions
-        int spacing = 20;
-        final Bitmap mergedBitmap = Bitmap.createBitmap(columnWitdhSum + ((columns + 1) * spacing), rowHeightSum + ((rows + 1) * spacing), Bitmap.Config.ARGB_8888, false);
+        final Bitmap mergedBitmap = Bitmap.createBitmap(columnWitdhSum + ((columns + 1) * imageSpacing), rowHeightSum + ((rows + 1) * imageSpacing), Bitmap.Config.ARGB_8888);
         // set background color
-        mergedBitmap.eraseColor(Color.WHITE);
+        mergedBitmap.eraseColor(Color.parseColor(backgroundColor));
         final Canvas canvas = new Canvas(mergedBitmap);
         // Merge images
-        int left = spacing, top = spacing, centerPaddingXSum = 0;
+        int left = imageSpacing, top = imageSpacing, centerPaddingXSum = 0;
         for (int i = 0, n = bitmapsMetadata.size(); i < n; i++) {
           BitmapMetadata metaData = bitmapsMetadata.get(i);
           Bitmap bitmap = BitmapFactory.decodeFile(metaData.fileName);
           // position correctly
           if (i > 0 && columns > 0 && i % columns == 0) {
-            left = spacing;
+            left = imageSpacing;
             centerPaddingXSum = 0;
-            top += spacing + maxRowHeights.get((i - 1) / columns);
+            top += imageSpacing + maxRowHeights.get((i - 1) / columns);
           }
           int centerPaddingX = (maxColumnWidths.get(i % columns) - metaData.width) / 2;
           int centerPaddingY = (maxRowHeights.get(i / columns) - metaData.height) / 2;
@@ -255,7 +262,7 @@ public class RNMergeImagesModule extends ReactContextBaseJavaModule {
 
           canvas.drawBitmap(bitmap, null, new RectF(canvasLeft, canvasTop, canvasRight, canvasBottom), null);
           centerPaddingXSum += 2 * centerPaddingX;
-          left += spacing + metaData.width;
+          left += imageSpacing + metaData.width;
           bitmap.recycle();
         }
 
@@ -276,15 +283,15 @@ public class RNMergeImagesModule extends ReactContextBaseJavaModule {
     }
   }
 
-  private void saveBitmap(Bitmap bitmap, int target, int jpegQuality, Promise promise) {
+  private void saveBitmap(Bitmap bitmap, int target, int jpegQuality, String filename, Promise promise) {
     try {
       File file;
       switch (target) {
         case RN_MERGE_TARGET_DISK:
-          file = getDiskFile();
+          file = getDiskFile(filename);
           break;
         default:
-          file = getTempFile();
+          file = getTempFile(filename);
       }
       final FileOutputStream out = new FileOutputStream(file);
       bitmap.compress(Bitmap.CompressFormat.JPEG, jpegQuality, out);
@@ -300,17 +307,19 @@ public class RNMergeImagesModule extends ReactContextBaseJavaModule {
     }
   }
 
-  private File getDiskFile() throws IOException {
+  private File getDiskFile(String filename) throws IOException {
     String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
     File outputDir = reactContext.getFilesDir();
     outputDir.mkdirs();
-    return new File(outputDir, "IMG_" + timeStamp + ".jpg");
+    String filenamePrefix = filename.length() > 0 ? filename : ("IMG_" + timeStamp);
+    return new File(outputDir, filenamePrefix + ".jpg");
   }
 
-  private File getTempFile() throws IOException {
+  private File getTempFile(String filename) throws IOException {
     String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
     File outputDir = reactContext.getCacheDir();
-    File outputFile = File.createTempFile("IMG_" + timeStamp, ".jpg", outputDir);
+    String filenamePrefix = filename.length() > 0 ? filename : ("IMG_" + timeStamp);
+    File outputFile = File.createTempFile(filenamePrefix, ".jpg", outputDir);
     return outputFile;
   }
 }
