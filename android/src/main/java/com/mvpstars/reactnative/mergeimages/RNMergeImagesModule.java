@@ -19,6 +19,7 @@ import com.facebook.react.bridge.ReadableMap;
 import com.facebook.react.bridge.WritableMap;
 import com.facebook.react.bridge.WritableNativeMap;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -127,7 +128,7 @@ public class RNMergeImagesModule extends ReactContextBaseJavaModule {
       final int maxColumns = options.hasKey("maxColumns") ? options.getInt("maxColumns") : DEFAULT_MAX_COLUMNS;
       final String backgroundColor = options.hasKey("backgroundColorHex") ? options.getString("backgroundColorHex") : DEFAULT_BACKGROUND_COLOR;
       final int imageSpacing = options.hasKey("imageSpacing") ? options.getInt("imageSpacing") : DEFAULT_IMAGE_SPACING;
-      // final int maxSizeInMB = options.hasKey("maxSizeInMB") ? options.getInt("maxSizeInMB") : DEFAULT_MAX_COLLAGE_SIZE_IN_MB; // Not needed for now because of small file size (IOS NEEDS IT)
+      final int maxSizeInMB = options.hasKey("maxSizeInMB") ? options.getInt("maxSizeInMB") : DEFAULT_MAX_SIZE_IN_MB;
 
       Bitmap resultBitmap = null;
 
@@ -137,14 +138,19 @@ public class RNMergeImagesModule extends ReactContextBaseJavaModule {
           break;
         }
         case RN_MERGE_TYPE_COLLAGE: {
-          resultBitmap = collage(maxColumns, backgroundColor, imageSpacing);
+          try {
+            resultBitmap = collage(maxColumns, backgroundColor, imageSpacing);
+          } catch(OutOfMemoryException oome) {
+            promise.reject("oom", oome);
+            return null;
+          }
           break;
         }
         default:
           resultBitmap = merge(size);
       }
 
-      saveBitmap(resultBitmap, target, jpegQuality, filenamePrefix, promise);
+      saveBitmap(resultBitmap, target, jpegQuality, maxSizeInMB, filenamePrefix, promise);
       return null;
     }
 
@@ -193,7 +199,7 @@ public class RNMergeImagesModule extends ReactContextBaseJavaModule {
     }
 
     // Create collage from images
-    private Bitmap collage (int maxColumns, String backgroundColor, int imageSpacing) {
+    private Bitmap collage (int maxColumns, String backgroundColor, int imageSpacing) throws OutOfMemoryException{
       try {
         final ArrayList<BitmapMetadata> bitmapsMetadata = new ArrayList<>();
         final ArrayList<Integer> maxRowHeights = new ArrayList<>();
@@ -220,7 +226,7 @@ public class RNMergeImagesModule extends ReactContextBaseJavaModule {
             if (maxColumnWidths.get(i % columns) < metaData.width) {
               maxColumnWidths.set(i % columns, metaData.width);
             }
-          } catch(IndexOutOfBoundsException e) {
+          } catch (IndexOutOfBoundsException e) {
             // If no value is set
             maxColumnWidths.add(i % columns, metaData.width);
           }
@@ -234,14 +240,23 @@ public class RNMergeImagesModule extends ReactContextBaseJavaModule {
           }
         }
         // sum up maxColumnWidths
-        for(int maxColumnWidth: maxColumnWidths) {
+        for (int maxColumnWidth : maxColumnWidths) {
           columnWitdhSum += maxColumnWidth;
         }
+
+        int collageWidth = columnWitdhSum + ((columns + 1) * imageSpacing);
+        int collageHeight = rowHeightSum + ((rows + 1) * imageSpacing);
+        boolean fitsInMemory = RGB_565BitmapFitsInMemory(collageWidth, collageHeight);
+
+        if (!fitsInMemory) {
+          throw new OutOfMemoryException("Too less memory to save collage");
+        }
+
         // Create bitmap with collage dimensions
-        final Bitmap mergedBitmap = Bitmap.createBitmap(columnWitdhSum + ((columns + 1) * imageSpacing), rowHeightSum + ((rows + 1) * imageSpacing), Bitmap.Config.ARGB_8888);
+        final Bitmap mergedBitmap = Bitmap.createBitmap(collageWidth, collageHeight, Bitmap.Config.RGB_565);
         // set background color
         mergedBitmap.eraseColor(Color.parseColor(backgroundColor));
-        final Canvas canvas = new Canvas(mergedBitmap);
+        Canvas canvas = new Canvas(mergedBitmap);
         // Merge images
         int left = imageSpacing, top = imageSpacing, centerPaddingXSum = 0;
         for (int i = 0, n = bitmapsMetadata.size(); i < n; i++) {
@@ -265,8 +280,9 @@ public class RNMergeImagesModule extends ReactContextBaseJavaModule {
           left += imageSpacing + metaData.width;
           bitmap.recycle();
         }
-
         return mergedBitmap;
+      } catch (OutOfMemoryException oome) {
+        throw oome;
       } catch (Exception e) {
         Log.i("TEST123", "EXCEPTION: " + e.getClass().getName() + " " + Log.getStackTraceString(e));
       }
@@ -283,8 +299,12 @@ public class RNMergeImagesModule extends ReactContextBaseJavaModule {
     }
   }
 
-  private void saveBitmap(Bitmap bitmap, int target, int jpegQuality, String filename, Promise promise) {
+  private void saveBitmap(Bitmap bitmap, int target, int jpegQuality, int maxSizeInMB, String filename, Promise promise) {
+    ByteArrayOutputStream byteOutputStream;
+    FileOutputStream fileOutputStream;
+
     try {
+      // Get file
       File file;
       switch (target) {
         case RN_MERGE_TARGET_DISK:
@@ -293,18 +313,69 @@ public class RNMergeImagesModule extends ReactContextBaseJavaModule {
         default:
           file = getTempFile(filename, false);
       }
-      final FileOutputStream out = new FileOutputStream(file);
-      bitmap.compress(Bitmap.CompressFormat.JPEG, jpegQuality, out);
-      WritableMap response = new WritableNativeMap();
-      response.putString("path", Uri.fromFile(file).toString());
-      response.putInt("width", bitmap.getWidth());
-      response.putInt("height", bitmap.getHeight());
-      promise.resolve(response);
-      out.flush();
-      out.close();
+
+      // Compress image to maxSizeInMB
+      fileOutputStream = new FileOutputStream(file);
+      byteOutputStream  = compressTo(bitmap, jpegQuality, maxSizeInMB);
+
+      try {
+        // Save image
+        byteOutputStream.writeTo(fileOutputStream);
+
+        // Prepare result data for bridge
+        WritableMap response = new WritableNativeMap();
+        response.putString("path", Uri.fromFile(file).toString());
+        response.putInt("width", bitmap.getWidth());
+        response.putInt("height", bitmap.getHeight());
+        promise.resolve(response);
+      } catch (IOException ioe) {
+        promise.reject("Failed to save image file", ioe);
+      } finally {
+        //Cleanup
+        fileOutputStream.flush();
+        fileOutputStream.close();
+        byteOutputStream.reset();
+      }
     } catch (Exception e) {
       promise.reject("Failed to save image file", e);
     }
+  }
+
+  private ByteArrayOutputStream compressTo(Bitmap bitmap, int jpegQuality, int maxSizeInMB) {
+      int maxSizeInBytes = maxSizeInMB * 1024 * 1024;
+      int compressingValue = jpegQuality;
+
+      ByteArrayOutputStream baos = new ByteArrayOutputStream();
+
+      while (compressingValue > 0.0) {
+        bitmap.compress(Bitmap.CompressFormat.JPEG, compressingValue, baos);
+        if (baos.toByteArray().length <= maxSizeInBytes){
+          return baos;
+        } else {
+          baos.reset();
+          compressingValue--;
+        }
+      }
+      return null;
+  }
+
+  private boolean RGB_565BitmapFitsInMemory(int width, int height) {
+    long available = availableMemory();
+    long needed = getNeededBitmapMemory(width, height, 3);
+    return  available > needed;
+  }
+
+  private long availableMemory() {
+    final Runtime rt = Runtime.getRuntime();
+    long allocatedMemory      = (rt.totalMemory() - rt.freeMemory());
+    long presumableFreeMemory = rt.maxMemory() - allocatedMemory;
+
+    long definitelyFreeMemory = rt.freeMemory();
+    return presumableFreeMemory;
+  }
+
+  private long getNeededBitmapMemory(int width, int height, int bytesPerPixel) {
+    return (long)width * height * bytesPerPixel;
   }
 
   private File getDiskFile(String filename) throws IOException {
@@ -325,4 +396,11 @@ public class RNMergeImagesModule extends ReactContextBaseJavaModule {
       return new File(outputDir, filenamePrefix + ".jpg");
     }
   }
+
+  private class OutOfMemoryException extends Exception {
+    public OutOfMemoryException(String message) {
+      super(message);
+    }
+  }
+
 }
