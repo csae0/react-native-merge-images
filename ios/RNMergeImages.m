@@ -13,7 +13,7 @@ NSString *DEFAULT_BACKGROUND_COLOR_HEX = @"#FFFFFF";
 
 - (NSString *)saveImage:(UIImage *)image withMaxSizeInMB:(NSInteger) maxSizeInMB withFilename:(NSString *) filenamePrefix {
     NSString *filename = [filenamePrefix length] == 0 ? [[NSProcessInfo processInfo] globallyUniqueString] : filenamePrefix;
-    NSString *fullPath = [NSString stringWithFormat:@"%@%@.jpg", NSTemporaryDirectory(), filenamePrefix];
+    NSString *fullPath = [NSString stringWithFormat:@"%@%@.jpg", NSTemporaryDirectory(), filename];
     // Compress image to specified size
     NSData *imageData = [self compressTo:maxSizeInMB image:image];
     [imageData writeToFile:fullPath atomically:YES];
@@ -54,30 +54,35 @@ RCT_EXPORT_METHOD(merge:(NSArray *)imagePaths
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 {
-    NSInteger mergeType = [options valueForKey:@"mergeType"] != nil ? [RCTConvert NSInteger:options[@"mergeType"]] : DEFAULT_MERGE_TYPE;
-    NSInteger maxColumns = [options valueForKey:@"maxColumns"] != nil ? [RCTConvert NSInteger:options[@"maxColumns"]] : DEFAULT_MAX_COLUMNS;
-    NSInteger imageSpacing = [options valueForKey:@"imageSpacing"] != nil ? [RCTConvert NSInteger:options[@"imageSpacing"]] : DEFAULT_IMAGE_SPACING;
-    NSInteger maxSizeInMB = [options valueForKey:@"maxSizeInMB"] != nil ? [RCTConvert NSInteger:options[@"maxSizeInMB"]] : DEFAULT_MAX_SIZE_IN_MB;
-    NSString *filenamePrefix = [options valueForKey:@"filenamePrefix"] != nil ? [RCTConvert NSString:options[@"filenamePrefix"]] : @"";
-    NSString *backgroundColor = [options valueForKey:@"backgroundColorHex"] != nil ? [RCTConvert NSString:options[@"backgroundColorHex"]] : DEFAULT_BACKGROUND_COLOR_HEX;
-    
-    UIImage *newImage = nil;
+    @try {
+        NSInteger mergeType = [options valueForKey:@"mergeType"] != nil ? [RCTConvert NSInteger:options[@"mergeType"]] : DEFAULT_MERGE_TYPE;
+        NSInteger maxColumns = [options valueForKey:@"maxColumns"] != nil ? [RCTConvert NSInteger:options[@"maxColumns"]] : DEFAULT_MAX_COLUMNS;
+        NSInteger imageSpacing = [options valueForKey:@"imageSpacing"] != nil ? [RCTConvert NSInteger:options[@"imageSpacing"]] : DEFAULT_IMAGE_SPACING;
+        NSInteger maxSizeInMB = [options valueForKey:@"maxSizeInMB"] != nil ? [RCTConvert NSInteger:options[@"maxSizeInMB"]] : DEFAULT_MAX_SIZE_IN_MB;
+        NSString *filenamePrefix = [options valueForKey:@"filenamePrefix"] != nil ? [RCTConvert NSString:options[@"filenamePrefix"]] : @"";
+        NSString *backgroundColor = [options valueForKey:@"backgroundColorHex"] != nil ? [RCTConvert NSString:options[@"backgroundColorHex"]] : DEFAULT_BACKGROUND_COLOR_HEX;
+        
+        UIImage *newImage = nil;
 
-    switch (mergeType) {
-        case 0:
-            newImage = [self merge: imagePaths];
-            break;
-        case 1:
-            newImage = [self collage: imagePaths withSpacing: imageSpacing withBackgroundColor: backgroundColor withMaxColumns: maxColumns];
-            break;
-        default:
-            newImage = [self merge: imagePaths];
-            break;
+        switch (mergeType) {
+            case 0:
+                newImage = [self merge: imagePaths];
+                break;
+            case 1:
+                newImage = [self collage: imagePaths withSpacing: imageSpacing withBackgroundColor: backgroundColor withMaxColumns: maxColumns];
+                break;
+            default:
+                newImage = [self merge: imagePaths];
+                break;
+        }
+        // save final image in temp
+        NSString *imagePath = [self saveImage:newImage withMaxSizeInMB:maxSizeInMB withFilename:filenamePrefix];
+        //resolve with image path
+        resolve(@{@"path":imagePath, @"width":[NSNumber numberWithFloat:newImage.size.width], @"height":[NSNumber numberWithFloat:newImage.size.height]});
+    } @catch(NSException *exception) {
+        NSError *error = [NSError errorWithDomain:@"com.mergeImages" code:0 userInfo:@{@"Error reason": exception.reason}];
+        reject(exception.reason, exception.description, error);
     }
-    // save final image in temp
-    NSString *imagePath = [self saveImage:newImage withMaxSizeInMB:maxSizeInMB withFilename:filenamePrefix];
-    //resolve with image path
-    resolve(@{@"path":imagePath, @"width":[NSNumber numberWithFloat:newImage.size.width], @"height":[NSNumber numberWithFloat:newImage.size.height]});
 }
 
 // Merge images (default, Setting: mergeType.MERGE)
@@ -166,11 +171,23 @@ RCT_EXPORT_METHOD(merge:(NSArray *)imagePaths
                 columnWitdhSum += [maxColumnWidth integerValue];
             }
             
-            // Create context with size and black background
+            // Create context with size
             CGFloat width = columnWitdhSum + ((columns + 1) * imageSpacing);
             CGFloat height = rowHeightSum + ((rows + 1) * imageSpacing);
+            
+            // Check if enough memory available to create large dimension bitmap
+            bool fitsInMemory = [self hasEnoughMemory:@{@"width": @(width), @"height": @(height), @"bytesPerPixel": @(4)}];
+            if (!fitsInMemory) {
+                NSException *e = [NSException
+                                  exceptionWithName:@"OutOfMemoryException"
+                                  reason:@"oom"
+                                  userInfo:nil];
+                @throw e;
+            }
+            
             CGSize contextSize = CGSizeMake(width, height);
             UIGraphicsBeginImageContextWithOptions(contextSize, YES, 0.0);
+            
             // Set background color
             [[self colorFromHexCode: backgroundColor] set];
             UIRectFill(CGRectMake(0.0, 0.0, width, height));
@@ -204,11 +221,9 @@ RCT_EXPORT_METHOD(merge:(NSArray *)imagePaths
             UIGraphicsEndImageContext();
             
             return collageImage;
+        } @finally {
+            UIGraphicsEndImageContext();
         }
-        @catch (NSException *exception) {
-            NSLog(@"%@", exception.reason);
-        }
-        return nil;
     }
 }
 
@@ -252,6 +267,25 @@ RCT_EXPORT_METHOD(merge:(NSArray *)imagePaths
     float alpha = ((baseValue >> 0) & 0xFF)/255.0f;
     
     return [UIColor colorWithRed:red green:green blue:blue alpha:alpha];
+}
+
+- (long) getBitmapSizeInBytes: (NSDictionary *) data {
+    NSInteger scale = (NSInteger)[UIScreen mainScreen].scale;
+    long bytes = (long)[data[@"width"] integerValue] * (long)[data[@"height"] integerValue] * (long)[data[@"bytesPerPixel"] integerValue] * (long)scale;
+    NSLog(@"TEST123 %i", ((int)bytes / 1024 / 1034));
+
+    return bytes;
+}
+
+- (long) getAvaliableMemory {
+    //TODO: IMPLEMENT
+    return LONG_MAX;
+}
+
+- (Boolean) hasEnoughMemory: (NSDictionary *) data {
+    NSInteger imageMemorySize = [self getBitmapSizeInBytes:data];
+    NSInteger availableSystemMemory = [self getAvaliableMemory];
+    return availableSystemMemory > imageMemorySize;
 }
 
 @end
