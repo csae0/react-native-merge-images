@@ -186,7 +186,7 @@ RCT_EXPORT_METHOD(merge:(NSArray *)imagePaths
             }
             
             CGSize contextSize = CGSizeMake(width, height);
-            UIGraphicsBeginImageContextWithOptions(contextSize, YES, 0.0);
+            UIGraphicsBeginImageContextWithOptions(contextSize, YES, 1.0);
             
             // Set background color
             [[self colorFromHexCode: backgroundColor] set];
