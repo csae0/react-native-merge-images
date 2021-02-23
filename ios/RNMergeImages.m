@@ -29,6 +29,13 @@ NSString *DEFAULT_BACKGROUND_COLOR_HEX = @"#FFFFFF";
 {
     return dispatch_get_main_queue();
 }
+
++ (BOOL)requiresMainQueueSetup
+{
+    return YES;
+}
+
+
 RCT_EXPORT_MODULE()
 
 - (NSDictionary *)constantsToExport
