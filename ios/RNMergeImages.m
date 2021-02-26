@@ -8,19 +8,24 @@ NSInteger DEFAULT_MAX_COLUMNS = 2;
 NSInteger DEFAULT_IMAGE_SPACING = 20;
 NSInteger DEFAULT_MAX_SIZE_IN_MB = 10;
 NSString *DEFAULT_BACKGROUND_COLOR_HEX = @"#FFFFFF";
+
 - (NSString *)saveImage:(UIImage *)image withMaxSizeInMB:(NSInteger) maxSizeInMB withFilename:(NSString *) filenamePrefix inTarget:(NSInteger) target {
+    
     NSString *filename = [filenamePrefix length] == 0 ? [[NSProcessInfo processInfo] globallyUniqueString] : filenamePrefix;
     NSURL *url = [self applicationDocumentsDirectory];
-    NSString *urlString = [url absoluteString];
     if (target) {
-        urlString = NSTemporaryDirectory();
+        url = [NSURL fileURLWithPath:NSTemporaryDirectory()];
     }
-    NSLog(@"%@", urlString);
-    NSString *fullPath = [NSString stringWithFormat:@"%@%@.jpg", urlString, filename];
+    url = [url URLByAppendingPathComponent:[NSString stringWithFormat:@"%@.jpg", filename]];
+    
     // Compress image to specified size
     NSData *imageData = [self compressTo:maxSizeInMB image:image];
-    [imageData writeToFile:fullPath atomically:YES];
-    return fullPath;
+    NSError *error;
+    BOOL success = [imageData writeToFile:url.path options:0 error:&error];
+    if (!success) {
+        NSLog(@"writeToFile failed with error %@", error);
+    }
+    return url.path;
 }
 - (NSURL *)applicationDocumentsDirectory
 {
