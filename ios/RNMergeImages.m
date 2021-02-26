@@ -1,43 +1,41 @@
-
 #import "RNMergeImages.h"
 #import <React/RCTConvert.h>
-
 @implementation RNMergeImages
-
+NSInteger DEFAULT_TARGET = 1;
 NSInteger DEFAULT_MERGE_TYPE = 0;
 NSInteger DEFAULT_JPEG_QUALITY = 80;
 NSInteger DEFAULT_MAX_COLUMNS = 2;
 NSInteger DEFAULT_IMAGE_SPACING = 20;
 NSInteger DEFAULT_MAX_SIZE_IN_MB = 10;
 NSString *DEFAULT_BACKGROUND_COLOR_HEX = @"#FFFFFF";
-
-- (NSString *)saveImage:(UIImage *)image withMaxSizeInMB:(NSInteger) maxSizeInMB withFilename:(NSString *) filenamePrefix {
+- (NSString *)saveImage:(UIImage *)image withMaxSizeInMB:(NSInteger) maxSizeInMB withFilename:(NSString *) filenamePrefix inTarget:(NSInteger) target {
     NSString *filename = [filenamePrefix length] == 0 ? [[NSProcessInfo processInfo] globallyUniqueString] : filenamePrefix;
-    NSString *fullPath = [NSString stringWithFormat:@"%@%@.jpg", NSTemporaryDirectory(), filename];
+    NSURL *url = [self applicationDocumentsDirectory];
+    NSString *urlString = [url absoluteString];
+    if (target) {
+        urlString = NSTemporaryDirectory();
+    }
+    NSLog(@"%@", urlString);
+    NSString *fullPath = [NSString stringWithFormat:@"%@%@.jpg", urlString, filename];
     // Compress image to specified size
     NSData *imageData = [self compressTo:maxSizeInMB image:image];
     [imageData writeToFile:fullPath atomically:YES];
     return fullPath;
 }
-
 - (NSURL *)applicationDocumentsDirectory
 {
     return [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask] lastObject];
 }
-
 - (dispatch_queue_t)methodQueue
 {
     return dispatch_get_main_queue();
 }
-
 + (BOOL)requiresMainQueueSetup
 {
     return YES;
 }
 
-
 RCT_EXPORT_MODULE()
-
 - (NSDictionary *)constantsToExport
 {
     return @{
@@ -55,13 +53,13 @@ RCT_EXPORT_MODULE()
                      }
              };
 }
-
 RCT_EXPORT_METHOD(merge:(NSArray *)imagePaths
                   options:(NSDictionary *)options
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 {
     @try {
+        NSInteger target = [options valueForKey:@"target"] != nil ? [RCTConvert NSInteger:options[@"target"]] : DEFAULT_TARGET;
         NSInteger mergeType = [options valueForKey:@"mergeType"] != nil ? [RCTConvert NSInteger:options[@"mergeType"]] : DEFAULT_MERGE_TYPE;
         NSInteger maxColumns = [options valueForKey:@"maxColumns"] != nil ? [RCTConvert NSInteger:options[@"maxColumns"]] : DEFAULT_MAX_COLUMNS;
         NSInteger imageSpacing = [options valueForKey:@"imageSpacing"] != nil ? [RCTConvert NSInteger:options[@"imageSpacing"]] : DEFAULT_IMAGE_SPACING;
@@ -70,7 +68,6 @@ RCT_EXPORT_METHOD(merge:(NSArray *)imagePaths
         NSString *backgroundColor = [options valueForKey:@"backgroundColorHex"] != nil ? [RCTConvert NSString:options[@"backgroundColorHex"]] : DEFAULT_BACKGROUND_COLOR_HEX;
         
         UIImage *newImage = nil;
-
         switch (mergeType) {
             case 0:
                 newImage = [self merge: imagePaths];
@@ -83,7 +80,7 @@ RCT_EXPORT_METHOD(merge:(NSArray *)imagePaths
                 break;
         }
         // save final image in temp
-        NSString *imagePath = [self saveImage:newImage withMaxSizeInMB:maxSizeInMB withFilename:filenamePrefix];
+        NSString *imagePath = [self saveImage:newImage withMaxSizeInMB:maxSizeInMB withFilename:filenamePrefix inTarget:target];
         //resolve with image path
         resolve(@{@"path":imagePath, @"width":[NSNumber numberWithFloat:newImage.size.width], @"height":[NSNumber numberWithFloat:newImage.size.height]});
     } @catch(NSException *exception) {
@@ -91,7 +88,6 @@ RCT_EXPORT_METHOD(merge:(NSArray *)imagePaths
         reject(exception.reason, exception.description, error);
     }
 }
-
 // Merge images (default, Setting: mergeType.MERGE)
 - (UIImage *)merge:(NSArray *)imagePaths {
     NSMutableArray *images = [@[] mutableCopy];
@@ -125,7 +121,6 @@ RCT_EXPORT_METHOD(merge:(NSArray *)imagePaths
     UIGraphicsEndImageContext();
     return mergedImage;
 }
-
 // Create collage from images (Setting: mergeType.COLLAGE)
 - (UIImage *)collage:(NSArray *)imagePaths withSpacing:(NSInteger) imageSpacing withBackgroundColor:(NSString *) backgroundColor withMaxColumns:(NSInteger) maxColumns {
     @autoreleasepool {
@@ -134,7 +129,6 @@ RCT_EXPORT_METHOD(merge:(NSArray *)imagePaths
             NSMutableArray *maxRowHeights = [[NSMutableArray alloc]init];
             NSMutableArray *maxColumnWidths = [[NSMutableArray alloc]init];
             NSInteger columnWitdhSum = 0, rowHeightSum = 0, tempMaxRowHeight = 0;
-
             // Get image metaData, ignore images without metadata
             for (id tempObject in imagePaths) {
                 NSURL *URL = [RCTConvert NSURL:tempObject];
@@ -218,7 +212,6 @@ RCT_EXPORT_METHOD(merge:(NSArray *)imagePaths
                 NSInteger canvasTop = top + centerPaddingY;
                 NSInteger canvasWidth =  [imageMetadata[@"width"] floatValue];
                 NSInteger canvasHeight = [imageMetadata[@"height"] floatValue];
-
                 [image drawInRect:CGRectMake(canvasLeft, canvasTop, canvasWidth, canvasHeight)];
                 centerPaddingXSum += 2 * centerPaddingX;
                 left += imageSpacing + [imageMetadata[@"width"] floatValue];
@@ -233,12 +226,10 @@ RCT_EXPORT_METHOD(merge:(NSArray *)imagePaths
         }
     }
 }
-
 - (NSData *)compressTo:(NSInteger)sizeInMb image:(UIImage *)soucreImage {
     NSInteger sizeInBytes = sizeInMb * 1024 * 1024;
     bool needCompress = true;
     CGFloat compressingValue = 1.0;
-
     while (needCompress && compressingValue > 0.0) {
         NSData *imageData = UIImageJPEGRepresentation(soucreImage, compressingValue);
         if (imageData) {
@@ -252,7 +243,6 @@ RCT_EXPORT_METHOD(merge:(NSArray *)imagePaths
     }
     return nil;
 }
-
 - (UIColor *) colorFromHexCode:(NSString *)hexString {
     NSString *cleanString = [hexString stringByReplacingOccurrencesOfString:@"#" withString:@""];
     if([cleanString length] == 3) {
@@ -275,24 +265,19 @@ RCT_EXPORT_METHOD(merge:(NSArray *)imagePaths
     
     return [UIColor colorWithRed:red green:green blue:blue alpha:alpha];
 }
-
 - (long) getBitmapSizeInBytes: (NSDictionary *) data {
     NSInteger scale = (NSInteger)[UIScreen mainScreen].scale;
     long bytes = (long)[data[@"width"] integerValue] * (long)[data[@"height"] integerValue] * (long)[data[@"bytesPerPixel"] integerValue] * (long)scale;
     NSLog(@"TEST123 %i", ((int)bytes / 1024 / 1034));
-
     return bytes;
 }
-
 - (long) getAvaliableMemory {
     //TODO: IMPLEMENT
     return LONG_MAX;
 }
-
 - (Boolean) hasEnoughMemory: (NSDictionary *) data {
     NSInteger imageMemorySize = [self getBitmapSizeInBytes:data];
     NSInteger availableSystemMemory = [self getAvaliableMemory];
     return availableSystemMemory > imageMemorySize;
 }
-
 @end
